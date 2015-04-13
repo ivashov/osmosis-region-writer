@@ -4,6 +4,7 @@ import org.openstreetmap.osmosis.core.container.v0_6.EntityContainer;
 import org.openstreetmap.osmosis.core.domain.v0_6.*;
 import org.openstreetmap.osmosis.core.task.v0_6.Sink;
 
+import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.PrintWriter;
@@ -13,8 +14,7 @@ import java.util.logging.Logger;
 public class Task implements Sink {
     private static final Logger log = Logger.getLogger(Task.class.getName());
 
-    private PrintWriter writer;
-    private String file;
+    private String directory;
 
     private int count;
 
@@ -26,8 +26,10 @@ public class Task implements Sink {
 
     private List<Segment> segments = new ArrayList<>();
 
-    public Task(String file) {
-        this.file = file;
+    private List<Region> regions = new ArrayList<>();
+
+    public Task(String directory) {
+        this.directory = directory;
     }
 
     @Override
@@ -52,16 +54,15 @@ public class Task implements Sink {
             }
 
             if (found == 2) {
-
-                if (name != null && name.contains("Петрозаводс")) {
+                if (name != null) {
                     log.info("Relation found");
 
-                    List<RelationMember> ptzMembers = relation.getMembers();
-                    for (RelationMember relationMember : ptzMembers) {
-                        if (relationMember.getMemberType() == EntityType.Way) {
-                            WayDesc wayDesc = ways.get(relationMember.getMemberId());
-                            addWay(wayDesc.nodes);
-                        }
+                    Region region;
+                    try {
+                        region = new Region(name, relation);
+                        regions.add(region);
+                    } catch (Exception e) {
+                        log.warning("Region " + name + " incomplete");
                     }
                 }
             }
@@ -76,53 +77,27 @@ public class Task implements Sink {
 
     @Override
     public void initialize(Map<String, Object> metaData) {
-        try {
-            writer = new PrintWriter(file);
-        } catch (FileNotFoundException e) {
-            throw new RuntimeException("Can't open output file " + file);
-        }
     }
 
     @Override
     public void complete() {
-        writer.println("polygons");
+        File outputDirectory = new File(directory);
 
-        int c = 0;
-        for (Segment segment : segments) {
-            writer.println("" + ++c);
-
-            for (Long node : segment.nodes) {
-                NodeDesc nodeDesc = nodes.get(node);
-                writer.println(nodeDesc.lon + " " + nodeDesc.lat);
+        for (Region region : regions) {
+            File outFile = new File(outputDirectory, region.name + ".poly");
+            try {
+                region.writePoly(outFile);
+            } catch (FileNotFoundException e) {
+                log.warning("Can't write .poly file for " + region.name);
             }
-
-            writer.println("END");
         }
-        writer.println("END");
+    }
+
+    private void writeRegion(Region region, File outFile) {
     }
 
     @Override
     public void release() {
-        writer.close();
-    }
-
-    private void addWay(long[] nodes) {
-        log.info("Adding way");
-        Segment newSegment = new Segment();
-        newSegment.nodes = new ArrayDeque<>(nodes.length);
-        for (long node : nodes) {
-            newSegment.nodes.addLast(node);
-        }
-
-        for (Iterator<Segment> iterator = segments.iterator(); iterator.hasNext(); ) {
-            Segment segment = iterator.next();
-
-            if (newSegment.addSegment(segment)) {
-                iterator.remove();
-            }
-        }
-
-        segments.add(newSegment);
     }
 
     private static class Segment {
@@ -174,6 +149,68 @@ public class Task implements Sink {
         public WayDesc(Way way) {
             nodes = new long[way.getWayNodes().size()];
             nodes = way.getWayNodes().stream().mapToLong(WayNode::getNodeId).toArray();
+        }
+    }
+
+    private class Region {
+        private final String name;
+        private final List<Segment> segments = new ArrayList<>();
+
+        public Region(String name, Relation relation) throws Exception {
+            this.name = name;
+            List<RelationMember> members = relation.getMembers();
+            for (RelationMember relationMember : members) {
+                if (relationMember.getMemberType() == EntityType.Way) {
+                    WayDesc wayDesc = ways.get(relationMember.getMemberId());
+                    if (wayDesc != null) {
+                        addWay(wayDesc.nodes);
+                    } else {
+                        throw new Exception("Incomplete region");
+                    }
+                }
+            }
+
+        }
+
+        public void addWay(long[] nodes) {
+            Segment newSegment = new Segment();
+            newSegment.nodes = new ArrayDeque<>(nodes.length);
+            for (long node : nodes) {
+                newSegment.nodes.addLast(node);
+            }
+
+            for (Iterator<Segment> iterator = segments.iterator(); iterator.hasNext(); ) {
+                Segment segment = iterator.next();
+
+                if (newSegment.addSegment(segment)) {
+                    iterator.remove();
+                }
+            }
+
+            segments.add(newSegment);
+        }
+
+        public void writePoly(File outFile) throws FileNotFoundException {
+            PrintWriter writer = new PrintWriter(outFile);
+            writer.println(name);
+
+            int c = 0;
+            for (Segment segment : segments) {
+                writer.println("" + ++c);
+
+                for (Long node : segment.nodes) {
+                    NodeDesc nodeDesc = nodes.get(node);
+                    if (nodeDesc != null) {
+                        writer.println(nodeDesc.lon + " " + nodeDesc.lat);
+                    } else {
+                        log.warning("Node for " + node + " not found. Region " + name);
+                    }
+                }
+
+                writer.println("END");
+            }
+            writer.println("END");
+            writer.close();
         }
     }
 }
