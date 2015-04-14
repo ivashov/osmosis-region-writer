@@ -1,18 +1,19 @@
 package com.github.ivashov.osmregionwriter.plugin;
 
+import org.json.JSONArray;
+import org.json.JSONObject;
 import org.openstreetmap.osmosis.core.container.v0_6.EntityContainer;
 import org.openstreetmap.osmosis.core.domain.v0_6.*;
 import org.openstreetmap.osmosis.core.task.v0_6.Sink;
 
-import java.io.File;
-import java.io.FileNotFoundException;
-import java.io.FileOutputStream;
-import java.io.PrintWriter;
+import java.io.*;
 import java.util.*;
 import java.util.logging.Logger;
 
 public class Task implements Sink {
     private static final Logger log = Logger.getLogger(Task.class.getName());
+
+    private boolean isRelationsStarted = false;
 
     private String directory;
 
@@ -37,6 +38,7 @@ public class Task implements Sink {
         Entity entity = entityContainer.getEntity();
 
         if (entity.getType() == EntityType.Relation) {
+            isRelationsStarted = true;
             Relation relation = (Relation) entity;
             Collection<Tag> tags = entity.getTags();
 
@@ -67,9 +69,15 @@ public class Task implements Sink {
                 }
             }
         } else if (entity.getType() == EntityType.Node) {
+            if (isRelationsStarted) {
+                throw new IllegalStateException("Input must be sorted in order relations after nodes and ways");
+            }
             Node node = (Node) entity;
             nodes.put(node.getId(), new NodeDesc(node));
         } else if (entity.getType() == EntityType.Way) {
+            if (isRelationsStarted) {
+                throw new IllegalStateException("Input must be sorted in order relations after nodes and ways");
+            }
             Way way = (Way) entity;
             ways.put(way.getId(), new WayDesc(way));
         }
@@ -77,24 +85,38 @@ public class Task implements Sink {
 
     @Override
     public void initialize(Map<String, Object> metaData) {
+        new JSONArray();
     }
 
     @Override
     public void complete() {
         File outputDirectory = new File(directory);
+        JSONObject regionsJson = new JSONObject();
+        regionsJson.put("version", 1);
+
+        JSONArray regionsArray = new JSONArray();
 
         for (Region region : regions) {
-            File outFile = new File(outputDirectory, region.name + ".poly");
+            File outFile = new File(outputDirectory, region.regionId + ".poly");
             try {
                 region.writePoly(outFile);
+                region.writeMeta(regionsArray);
             } catch (FileNotFoundException e) {
                 log.warning("Can't write .poly file for " + region.name);
             }
         }
+
+        regionsJson.put("regions", regionsArray);
+
+        try {
+            FileWriter writer = new FileWriter(new File(outputDirectory, "regions.json"));
+            writer.write(regionsJson.toString());
+            writer.close();
+        } catch (IOException e) {
+            log.warning("Can't write region.json file");
+        }
     }
 
-    private void writeRegion(Region region, File outFile) {
-    }
 
     @Override
     public void release() {
@@ -154,10 +176,13 @@ public class Task implements Sink {
 
     private class Region {
         private final String name;
+        private final String regionId;
+
         private final List<Segment> segments = new ArrayList<>();
 
         public Region(String name, Relation relation) throws Exception {
             this.name = name;
+            this.regionId = String.valueOf(name.hashCode());
             List<RelationMember> members = relation.getMembers();
             for (RelationMember relationMember : members) {
                 if (relationMember.getMemberType() == EntityType.Way) {
@@ -211,6 +236,20 @@ public class Task implements Sink {
             }
             writer.println("END");
             writer.close();
+        }
+
+        public void writeMeta(JSONArray regionArray) {
+            JSONObject regionJson = new JSONObject();
+
+            regionJson.put("region-id", regionId);
+            regionJson.put("poly-file", regionId + ".poly");
+
+            JSONObject namesJson = new JSONObject();
+            namesJson.put("ru", name);
+
+            regionJson.put("names", namesJson);
+
+            regionArray.put(regionJson);
         }
     }
 }
