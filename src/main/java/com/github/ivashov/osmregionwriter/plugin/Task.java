@@ -242,6 +242,7 @@ public class Task implements Sink {
             JSONObject regionJson = new JSONObject();
 
             regionJson.put("region-id", regionId);
+            regionJson.put("admin-level", 6);
             regionJson.put("poly-file", regionId + ".poly");
 
             JSONObject namesJson = new JSONObject();
