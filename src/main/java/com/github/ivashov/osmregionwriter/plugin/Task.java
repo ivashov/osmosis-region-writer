@@ -170,7 +170,12 @@ public class Task implements Sink {
 
         public WayDesc(Way way) {
             nodes = new long[way.getWayNodes().size()];
-            nodes = way.getWayNodes().stream().mapToLong(WayNode::getNodeId).toArray();
+
+            List<WayNode> wayNodes = way.getWayNodes();
+            for (int i = 0; i < wayNodes.size(); i++) {
+                WayNode wayNode = wayNodes.get(i);
+                nodes[i] = wayNode.getNodeId();
+            }
         }
     }
 
