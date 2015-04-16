@@ -25,7 +25,7 @@ task fatJar(type: Jar) {
 dependencies {
     testCompile group: 'junit', name: 'junit', version: '4.11'
     compile group: 'org.openstreetmap.osmosis', name: 'osmosis-core', version:'0.43.1'
-    compile group: 'org.json', name: 'json', version: '20090211'
+    compile group: 'org.json', name: 'json', version: '20131018'
 
-    releaseJars group: 'org.json', name: 'json', version: '20090211'
+    releaseJars group: 'org.json', name: 'json', version: '20131018'
  }
